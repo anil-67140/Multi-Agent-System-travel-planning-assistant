@@ -100,7 +100,7 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
       - name: Image vulnerability scan
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with: { image-ref: "tripmate:ci", severity: "CRITICAL,HIGH", ignore-unfixed: true, exit-code: "1" }
       - name: Smoke test the built image
         run: |
