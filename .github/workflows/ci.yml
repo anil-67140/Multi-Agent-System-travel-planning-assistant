@@ -92,7 +92,7 @@ jobs:
           tags: |
             type=sha,format=long
             type=raw,value=latest,enable={{is_default_branch}}
-      - uses: docker/build-push-action@v6
+      - uses: docker/build-push-action@v7
         with:
           context: .
           load: true
@@ -108,7 +108,7 @@ jobs:
             -e TRIPMATE_ENV=development -e GROQ_API_KEY=dummy tripmate:ci
           for i in $(seq 1 30); do curl -fsS localhost:8000/healthz && exit 0; sleep 2; done
           docker logs smoke; exit 1
-      - uses: docker/build-push-action@v6
+      - uses: docker/build-push-action@v7
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         with:
           context: .
