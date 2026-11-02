@@ -1,0 +1,117 @@
+name: CI
+
+on:
+  push: { branches: [main] }
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: "3.12"
+  REQUIRE_ALL_DEPS: "1"      # a missing optional dependency is a failure in CI, never a silent skip
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "${{ env.PYTHON_VERSION }}", cache: pip }
+      - run: pip install -e ".[dev,scale,observability]"
+      - run: ruff check .
+      - run: ruff format --check .
+      - run: mypy src
+
+  test:
+    runs-on: ubuntu-latest
+    needs: lint
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env: { POSTGRES_USER: tripmate, POSTGRES_PASSWORD: tripmate, POSTGRES_DB: tripmate }
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U tripmate" --health-interval 5s --health-timeout 3s --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: --health-cmd "redis-cli ping" --health-interval 5s --health-timeout 3s --health-retries 10
+    env:
+      TRIPMATE_TEST_POSTGRES_URL: postgresql+psycopg://tripmate:tripmate@localhost:5432/tripmate
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "${{ env.PYTHON_VERSION }}", cache: pip }
+      - run: pip install -e ".[dev,scale,observability]"
+      - name: Migrations apply, roll back and re-apply on PostgreSQL
+        env: { TRIPMATE_DATABASE_URL: "postgresql+psycopg://tripmate:tripmate@localhost:5432/tripmate" }
+        run: alembic upgrade head && alembic downgrade base && alembic upgrade head
+      - name: Unit, workflow, service, API, contract and failure-path tests
+        run: pytest --cov=tripmate --cov-report=xml --cov-report=term-missing --junitxml=junit.xml
+      - name: Evaluation regression gate (golden cases vs committed baseline)
+        run: tripmate-eval --report eval-report.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: reports, path: "coverage.xml\njunit.xml\neval-report.json" }
+
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: actions/setup-python@v5
+        with: { python-version: "${{ env.PYTHON_VERSION }}", cache: pip }
+      - run: pip install -e ".[dev,scale,observability]"
+      - name: SAST
+        run: bandit -r src -ll -q
+      - name: Known-vulnerable dependencies
+        run: pip-audit --strict --skip-editable
+      - name: Secret scan
+        uses: gitleaks/gitleaks-action@v2
+        env: { GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}" }
+
+  image:
+    runs-on: ubuntu-latest
+    needs: [test, security]
+    permissions: { contents: read, packages: write, security-events: write }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        if: github.event_name == 'push'
+        with: { registry: ghcr.io, username: "${{ github.actor }}", password: "${{ secrets.GITHUB_TOKEN }}" }
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=sha,format=long
+            type=raw,value=latest,enable={{is_default_branch}}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: tripmate:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Image vulnerability scan
+        uses: aquasecurity/trivy-action@0.28.0
+        with: { image-ref: "tripmate:ci", severity: "CRITICAL,HIGH", ignore-unfixed: true, exit-code: "1" }
+      - name: Smoke test the built image
+        run: |
+          docker run -d --name smoke -p 8000:8000 \
+            -e TRIPMATE_ENV=development -e GROQ_API_KEY=dummy tripmate:ci
+          for i in $(seq 1 30); do curl -fsS localhost:8000/healthz && exit 0; sleep 2; done
+          docker logs smoke; exit 1
+      - uses: docker/build-push-action@v6
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          cache-from: type=gha

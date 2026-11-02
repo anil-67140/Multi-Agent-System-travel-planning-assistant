@@ -216,3 +216,12 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# TripMate
+.env
+*.db
+.ruff_cache/
+.mypy_cache/
+coverage.xml
+junit.xml
+eval-report.json

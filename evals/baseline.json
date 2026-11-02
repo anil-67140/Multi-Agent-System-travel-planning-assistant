@@ -1,0 +1,18 @@
+{
+  "cases": 16,
+  "mean_score": 92.6,
+  "pass_rate": 1.0,
+  "passed": 16,
+  "scores": {
+    "bangkok-tight-budget": 83.6,
+    "default-dates-disclosed": 96.2,
+    "dubai-family-dietary": 96.6,
+    "istanbul-weekend-relaxed": 80.3,
+    "lisbon-eur-budget": 95.9,
+    "max-length-trip": 95.2,
+    "paris-pkr-budget": 96.6,
+    "rome-luxury-packed": 96.9,
+    "singapore-no-origin": 96.7,
+    "tokyo-5d-food": 88.0
+  }
+}

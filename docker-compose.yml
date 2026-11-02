@@ -1,0 +1,66 @@
+# Local full stack: docker compose up --build
+# Needs a .env with GROQ_API_KEY and/or GEMINI_API_KEY (both have free tiers).
+x-app: &app
+  build: .
+  env_file: .env
+  environment: &env
+    TRIPMATE_ENV: development
+    TRIPMATE_LOG_JSON: "false"
+    TRIPMATE_DATABASE_URL: postgresql+psycopg://tripmate:tripmate@postgres:5432/tripmate
+    TRIPMATE_CHECKPOINT_POSTGRES_URL: postgresql://tripmate:tripmate@postgres:5432/tripmate
+    TRIPMATE_REDIS_URL: redis://redis:6379/0
+    TRIPMATE_QUEUE_BACKEND: arq
+  depends_on:
+    postgres: { condition: service_healthy }
+    redis: { condition: service_healthy }
+    migrate: { condition: service_completed_successfully }
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment: { POSTGRES_USER: tripmate, POSTGRES_PASSWORD: tripmate, POSTGRES_DB: tripmate }
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck: { test: ["CMD-SHELL", "pg_isready -U tripmate"], interval: 5s, timeout: 3s, retries: 10 }
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    healthcheck: { test: ["CMD", "redis-cli", "ping"], interval: 5s, timeout: 3s, retries: 10 }
+
+  migrate:
+    build: .
+    command: ["alembic", "upgrade", "head"]
+    environment:
+      TRIPMATE_DATABASE_URL: postgresql+psycopg://tripmate:tripmate@postgres:5432/tripmate
+    depends_on:
+      postgres: { condition: service_healthy }
+
+  api:
+    <<: *app
+    ports: ["8000:8000"]     # API + Gradio UI at http://localhost:8000/ui
+
+  worker:
+    <<: *app
+    command: ["tripmate-worker"]
+    deploy: { replicas: 2 }   # horizontal scale: any worker can run any job
+
+  # Optional: central LiteLLM proxy (docker compose --profile gateway up)
+  litellm:
+    profiles: ["gateway"]
+    image: ghcr.io/berriai/litellm:main-stable
+    command: ["--config", "/app/config.yaml", "--port", "4000"]
+    env_file: .env
+    volumes: ["./deploy/litellm/config.yaml:/app/config.yaml:ro"]
+    ports: ["4000:4000"]
+
+  # Optional: metrics + alerts (docker compose --profile obs up)
+  prometheus:
+    profiles: ["obs"]
+    image: prom/prometheus:latest
+    volumes:
+      - ./deploy/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./deploy/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+    ports: ["9090:9090"]
+
+volumes:
+  pgdata:

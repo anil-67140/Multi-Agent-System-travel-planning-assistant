@@ -1,0 +1,27 @@
+# Optional central gateway. Set TRIPMATE_LITELLM_PROXY_URL=http://litellm:4000 to use it instead of the
+# in-process Router. Keys come from the environment, never from this file.
+model_list:
+  - model_name: smart
+    litellm_params: { model: groq/openai/gpt-oss-120b, api_key: os.environ/GROQ_API_KEY }
+  - model_name: smart
+    litellm_params: { model: gemini/gemini-3.8-flash, api_key: os.environ/GEMINI_API_KEY }
+  - model_name: fast
+    litellm_params: { model: groq/openai/gpt-oss-20b, api_key: os.environ/GROQ_API_KEY }
+  - model_name: fast
+    litellm_params: { model: gemini/gemini-3.5-flash-lite, api_key: os.environ/GEMINI_API_KEY }
+
+router_settings:
+  routing_strategy: simple-shuffle
+  num_retries: 2
+  timeout: 45
+  cooldown_time: 30
+  allowed_fails: 3
+  fallbacks:
+    - smart: [fast]       # last resort: degrade quality rather than fail
+
+litellm_settings:
+  drop_params: true       # e.g. reasoning_effort is not valid for Gemini
+  callbacks: ["langfuse"] # no-op unless LANGFUSE_* are set
+
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY

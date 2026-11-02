@@ -1,0 +1,21 @@
+# Render blueprint (free web service + free Postgres). Redis/worker are optional: the default
+# TRIPMATE_QUEUE_BACKEND=inprocess needs neither.
+services:
+  - type: web
+    name: tripmate-api
+    runtime: docker
+    plan: free
+    healthCheckPath: /readyz
+    envVars:
+      - { key: TRIPMATE_ENV, value: production }
+      - { key: TRIPMATE_LOG_JSON, value: "true" }
+      - { key: TRIPMATE_JWT_SECRET, generateValue: true }
+      - { key: TRIPMATE_DATABASE_URL, fromDatabase: { name: tripmate-db, property: connectionString } }
+      - { key: TRIPMATE_CHECKPOINT_POSTGRES_URL, fromDatabase: { name: tripmate-db, property: connectionString } }
+      - { key: GROQ_API_KEY, sync: false }
+      - { key: GEMINI_API_KEY, sync: false }
+      - { key: TAVILY_API_KEY, sync: false }
+    preDeployCommand: alembic upgrade head
+databases:
+  - name: tripmate-db
+    plan: free

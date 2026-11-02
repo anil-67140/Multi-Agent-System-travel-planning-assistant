@@ -1,0 +1,34 @@
+name: Deploy
+
+# Runs only after CI succeeded on main. The deploy target is Render (free tier); swap the last step for
+# Fly.io / Cloud Run / Kubernetes without changing anything above it.
+on:
+  workflow_run:
+    workflows: [CI]
+    branches: [main]
+    types: [completed]
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    if: github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    environment: production        # add required reviewers in repo settings for a manual gate
+    steps:
+      - name: Trigger Render deploy of the exact commit CI verified
+        env:
+          HOOK: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
+          SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          test -n "$HOOK" || { echo "RENDER_DEPLOY_HOOK_URL secret is not set"; exit 1; }
+          curl -fsS -X POST "$HOOK&ref=$SHA"
+      - name: Wait for readiness
+        env: { URL: "${{ vars.PRODUCTION_URL }}" }
+        run: |
+          for i in $(seq 1 40); do
+            curl -fsS "$URL/readyz" && exit 0
+            sleep 15
+          done
+          echo "deployment did not become ready"; exit 1

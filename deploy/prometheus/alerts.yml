@@ -1,0 +1,37 @@
+groups:
+  - name: tripmate
+    rules:
+      - alert: HighErrorRate
+        expr: sum(rate(tripmate_http_requests_total{status=~"5.."}[5m])) / sum(rate(tripmate_http_requests_total[5m])) > 0.05
+        for: 5m
+        labels: { severity: page }
+        annotations: { summary: "More than 5% of API responses are 5xx" }
+      - alert: SlowRequests
+        expr: histogram_quantile(0.95, sum by (le) (rate(tripmate_http_request_seconds_bucket[5m]))) > 2
+        for: 10m
+        labels: { severity: ticket }
+        annotations: { summary: "API p95 latency above 2s" }
+      - alert: LLMFailures
+        expr: sum(rate(tripmate_llm_calls_total{outcome=~"error|invalid_output"}[10m])) / sum(rate(tripmate_llm_calls_total[10m])) > 0.2
+        for: 10m
+        labels: { severity: page }
+        annotations: { summary: "More than 20% of LLM calls fail or return invalid output" }
+      - alert: LLMFallbackStorm
+        expr: sum(rate(tripmate_llm_fallbacks_total[15m])) / sum(rate(tripmate_llm_calls_total{outcome="ok"}[15m])) > 0.5
+        for: 15m
+        labels: { severity: ticket }
+        annotations: { summary: "Majority of LLM calls served by fallback model: primary provider throttled or down" }
+      - alert: ProviderCircuitOpen
+        expr: increase(tripmate_tool_events_total{event="breaker_rejected"}[10m]) > 20
+        labels: { severity: ticket }
+        annotations: { summary: "A data provider's circuit breaker is rejecting calls: {{ $labels.provider }}" }
+      - alert: JobBacklog
+        expr: tripmate_jobs_pending > 50
+        for: 5m
+        labels: { severity: ticket }
+        annotations: { summary: "Background job queue is backing up" }
+      - alert: PlansFailing
+        expr: sum(rate(tripmate_plans_finished_total{status="failed"}[30m])) / sum(rate(tripmate_plans_finished_total[30m])) > 0.25
+        for: 15m
+        labels: { severity: page }
+        annotations: { summary: "More than 25% of plans end in failure" }
